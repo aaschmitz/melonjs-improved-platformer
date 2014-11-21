@@ -400,7 +400,8 @@ game.FlyEnemyEntity = game.PathEnemyEntity.extend({
  */
 game.Raycast = me.Entity.extend({
 	init: function(v1, v2) {
-		this._super(me.Entity, "init", [v1.x, v1.y, {width: Math.abs(v1.x - v2.x), height: Math.abs(v1.y - v2.y)}]);
+		var map = me.game.currentLevel;
+        this._super(me.Entity, "init", [0, 0, {width: map.width, height: map.height}]);
 		this.colliding = [];
 		
 		// add the shape - me.Line
@@ -482,7 +483,9 @@ game.AIEnemyEntity = me.Entity.extend({
     		this.raycast.colliding.length = 0;
 
     		// update the body bounds, in case the position vectors have changed
-    		this.raycast.body.updateBounds();
+            this.raycast.body.getShape(0).recalc();
+            this.raycast.body.getShape(0).updateBounds();
+            this.raycast.body.updateBounds();
 
     		// get a new list of colliding entities
     		me.collision.check(this.raycast);
@@ -531,15 +534,16 @@ game.AIEnemyEntity = me.Entity.extend({
 				var boundsB = other.getBounds();
                 
                 // check for shape limits - prevents entity fall
-                // this is NOT working!!!
-				if (boundsA.left < boundsB.left) {
-					// Correct entity position on the left side
-					response.overlapN.x = boundsB.left - boundsA.left;
-				}
-				else if (boundsA.right > boundsB.right) {
-					// Correct entity position on the right side
-					response.overlapN.x = boundsB.right - boundsA.right;
-				}
+                if (boundsA.left < boundsB.left) {
+                    // Correct entity position on the left side
+                    this.pos.x += boundsB.left - boundsA.left;
+                    this.body.updateBounds();
+                }
+                else if (boundsA.right > boundsB.right) {
+                    // Correct entity position on the right side
+                    this.pos.x += boundsB.right - boundsA.right;
+                    this.body.updateBounds();
+                }
 
 				// apply the response to the body position
 				return true;
