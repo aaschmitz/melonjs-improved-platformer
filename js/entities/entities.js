@@ -469,7 +469,6 @@ game.AIEnemyEntity = me.Entity.extend({
         this.raycast = new game.Raycast(this.pos, game.mainPlayer.pos);
     },
 
-
     /**
      * manage the enemy movement
      */
@@ -564,6 +563,6 @@ game.AIEnemyEntity = me.Entity.extend({
         }
         
         // No response (ignore collision)
-		return false;
+	    return false;
     }
 });
