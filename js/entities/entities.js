@@ -527,21 +527,24 @@ game.AIEnemyEntity = me.Entity.extend({
     onCollision : function (response, other) {
         // check for collision with world shapes
         switch (other.body.collisionType) {
-			case me.collision.types.WORLD_SHAPE:
-			    // get the entity and shape bounds
-				var boundsA = this.getBounds();
-				var boundsB = other.getBounds();
-                
-                // check for shape limits - prevents entity fall
-                if (boundsA.left < boundsB.left) {
-                    // Correct entity position on the left side
-                    this.pos.x += boundsB.left - boundsA.left;
-                    this.body.updateBounds();
-                }
-                else if (boundsA.right > boundsB.right) {
-                    // Correct entity position on the right side
-                    this.pos.x += boundsB.right - boundsA.right;
-                    this.body.updateBounds();
+			case me.collision.types.WORLD_SHAPE:			    				
+                // check collision on the x axis
+                if (response.overlapN.x === 0) {
+                    // get the entity and shape bounds
+	    			var boundsA = this.getBounds();
+	    			var boundsB = other.getBounds();
+				               
+                    // check for shape limits - prevents entity fall
+                    if (boundsA.left < boundsB.left) {
+                        // Correct entity position on the left side
+                        this.pos.x += boundsB.left - boundsA.left;
+                        this.body.updateBounds();
+                    }
+                    else if (boundsA.right > boundsB.right) {
+                        // Correct entity position on the right side
+                        this.pos.x += boundsB.right - boundsA.right;
+                        this.body.updateBounds();
+                    }
                 }
 
 				// apply the response to the body position
