@@ -527,29 +527,27 @@ game.AIEnemyEntity = me.Entity.extend({
     onCollision : function (response, other) {
         // check for collision with world shapes
         switch (other.body.collisionType) {
-			case me.collision.types.WORLD_SHAPE:			    				
+            case me.collision.types.WORLD_SHAPE:
                 // check collision on the x axis
                 if (response.overlapN.x === 0) {
                     // get the entity and shape bounds
-	    			var boundsA = this.getBounds();
-	    			var boundsB = other.getBounds();
-				               
+                    var boundsA = this.getBounds();
+                    var boundsB = other.getBounds();
+
                     // check for shape limits - prevents entity fall
                     if (boundsA.left < boundsB.left) {
                         // Correct entity position on the left side
-                        this.pos.x += boundsB.left - boundsA.left;
-                        this.body.updateBounds();
+                        response.overlapV.x = boundsA.left - boundsB.left;
                     }
                     else if (boundsA.right > boundsB.right) {
                         // Correct entity position on the right side
-                        this.pos.x += boundsB.right - boundsA.right;
-                        this.body.updateBounds();
+                        response.overlapV.x = boundsA.right - boundsB.right;
                     }
                 }
 
-				// apply the response to the body position
-				return true;
-		}
+            // apply the response to the body position
+            return true;
+        }
 
         // res.y >0 means touched by something on the bottom
         // which mean at top position for this one
