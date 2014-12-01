@@ -5816,6 +5816,7 @@ if (!window.performance.now) {
          * myEntity.body.setCollisionMask(me.collision.types.WORLD_SHAPE | me.collision.types.ENEMY_OBJECT | me.collision.types.COLLECTABLE_OBJECT);
          */
         api.types = {
+            /** to disable collision check */
             NO_OBJECT : 0,
 
             /**
@@ -5990,19 +5991,22 @@ if (!window.performance.now) {
          * @example
          * update : function (dt) {
          *    ...
-         *    // check for collision between this object and all others
+         *    // handle collisions against other shapes
          *    me.collision.check(this);
          *    ...
          * };
          *
+         * // colision handler
          * onCollision : function (response) {
          *     if (response.b.body.collisionType === me.collision.types.ENEMY_OBJECT) {
          *         // makes the other entity solid, by substracting the overlap vector to the current position
          *         this.pos.sub(response.overlapV);
          *         this.hurt();
-         *     } else {
-         *         ...
+         *         // not solid
+         *         return false;
          *     }
+         *     // Make the object solid
+         *     return true;
          * };
          */
         api.check = function (objA, responseObject) {
@@ -6570,8 +6574,8 @@ if (!window.performance.now) {
      * @param {Number} x the x coordinates of the sprite object
      * @param {Number} y the y coordinates of the sprite object
      * @param {Image} image reference to the Sprite Image. See {@link me.loader#getImage}
-     * @param {Number} [spritewidth] sprite width
-     * @param {Number} [spriteheigth] sprite height
+     * @param {Number} [spritewidth] sprite width. The width to draw the image as. Defaults to image width.
+     * @param {Number} [spriteheigth] sprite height. The height to draw the image as. Defaults to image height.
      * @example
      * // create a static Sprite Object
      * mySprite = new me.Sprite (100, 100, me.loader.getImage("mySpriteImage"));
@@ -6918,8 +6922,8 @@ if (!window.performance.now) {
      * @param {Object} settings Contains additional parameters for the animation sheet:
      * <ul>
      * <li>{Image} image to use for the animation</li>
-     * <li>{Number} spritewidth - of a single sprite within the spritesheet</li>
-     * <li>{Number} spriteheight - height of a single sprite within the spritesheet</li>
+     * <li>{Number} spritewidth - of a single frame within the spritesheet</li>
+     * <li>{Number} spriteheight - height of a single frame within the spritesheet</li>
      * <li>{Object} region an instance of: me.TextureAtlas#getRegion. The region for when the animation sheet is part of a me.TextureAtlas</li>
      * </ul>
      * @example
@@ -9572,6 +9576,7 @@ if (!window.performance.now) {
     // based on the requestAnimationFrame polyfill by Erik Möller
     (function () {
         var lastTime = 0;
+        var frameDuration = 1000 / 60;
         // get unprefixed rAF and cAF, if present
         var requestAnimationFrame = me.agent.prefixed("requestAnimationFrame");
         var cancelAnimationFrame = me.agent.prefixed("cancelAnimationFrame") ||
@@ -9580,7 +9585,7 @@ if (!window.performance.now) {
         if (!requestAnimationFrame || !cancelAnimationFrame) {
             requestAnimationFrame = function (callback) {
                 var currTime = window.performance.now();
-                var timeToCall = Math.max(0, 16 - (currTime - lastTime));
+                var timeToCall = Math.max(0, frameDuration - (currTime - lastTime));
                 var id = window.setTimeout(function () {
                     callback(currTime + timeToCall);
                 }, timeToCall);
@@ -11483,9 +11488,6 @@ if (!window.performance.now) {
         // audio channel list
         var audioTracks = {};
 
-        // unique store for callbacks
-        var callbacks = {};
-
         // current music
         var current_track_id = null;
 
@@ -11619,13 +11621,6 @@ if (!window.performance.now) {
             audioTracks[sound.name] = new Howl({
                 src : urls,
                 volume : Howler.volume(),
-                onend : function (soundId) {
-                    if (callbacks[soundId]) {
-                        // fire call back if it exists, then delete it
-                        callbacks[soundId]();
-                        callbacks[soundId] = null;
-                    }
-                },
                 onloaderror : function () {
                     audioTracks[sound.name] = this;
                     soundLoadError.call(me.audio, sound.name, onerror_cb);
@@ -11656,8 +11651,7 @@ if (!window.performance.now) {
          *            [onend] Function to call when sound instance ends playing.
          * @param {Number}
          *            [volume=default] Float specifying volume (0.0 - 1.0 values accepted).
-         * @param {Function}
-         *            [oncreate] Callback to receive the internal sound ID when created
+         * @return {Number} the sound Id.
          * @example
          * // play the "cling" audio clip
          * me.audio.play("cling");
@@ -11668,25 +11662,40 @@ if (!window.performance.now) {
          * // play the "gameover_sfx" audio clip with a lower volume level
          * me.audio.play("gameover_sfx", false, null, 0.5);
          */
-        api.play = function (sound_id, loop, onend, volume, oncreate) {
+        api.play = function (sound_id, loop, onend, volume) {
             var sound = audioTracks[sound_id.toLowerCase()];
             if (sound && typeof sound !== "undefined") {
-                sound.loop(loop || false);
+                if (typeof loop === "boolean") {
+                    // arg[0] can take different types in howler 2.0
+                    sound.loop(loop);
+                }
                 sound.volume(typeof(volume) === "number" ? volume.clamp(0.0, 1.0) : Howler.volume());
-                if (typeof(onend) === "function" || typeof(oncreate) === "function") {
-                    sound.play(undefined, function (soundId) {
-                        if (onend) {
-                            callbacks[soundId] = onend;
-                        }
-                        if (oncreate) {
-                            oncreate(soundId);
-                        }
+                if (typeof(onend) === "function") {
+                    sound.on("end", function onend_wrapper() {
+                        sound.off("end", onend_wrapper);
+                        onend.call(sound, arguments);
                     });
                 }
-                else {
-                    sound.play();
-                }
-                return sound;
+                return sound.play();
+            }
+        };
+
+        /**
+         * Fade a currently playing sound between two volumee.
+         * @name fade
+         * @memberOf me.audio
+         * @public
+         * @function
+         * @param {String} sound_id audio clip id
+         * @param {Number} from Volume to fade from (0.0 to 1.0).
+         * @param {Number} to  Volume to fade to (0.0 to 1.0).
+         * @param {Number} duration Time in milliseconds to fade.
+         * @param {Number} [id] The sound ID. If none is passed, all sounds in group will fade.
+         */
+        api.fade = function (sound_id, from, to, duration, instance_id) {
+            var sound = audioTracks[sound_id.toLowerCase()];
+            if (sound && typeof sound !== "undefined") {
+                sound.fade(from, to, duration, instance_id);
             }
         };
 
@@ -11705,6 +11714,8 @@ if (!window.performance.now) {
             var sound = audioTracks[sound_id.toLowerCase()];
             if (sound && typeof sound !== "undefined") {
                 sound.stop(instance_id);
+                // remove the defined onend callback (if any defined)
+                sound.off("end");
             }
         };
 
@@ -11965,6 +11976,7 @@ if (!window.performance.now) {
         doubleBuffering = null,
         backBufferCanvas = null,
         backBufferContext2D = null,
+        globalColor = null,
         gameHeightZoom = 0,
         gameWidthZoom = 0;
 
@@ -11997,6 +12009,10 @@ if (!window.performance.now) {
 
             gameWidthZoom = game_width_zoom;
             gameHeightZoom = game_height_zoom;
+
+            // the default global canvas color
+            globalColor = new me.Color(255, 255, 255, 1.0);
+            api.setColor(globalColor);
 
             return this;
         };
@@ -12286,8 +12302,7 @@ if (!window.performance.now) {
          * @return {me.Color}
          */
         api.getColor = function () {
-            var color = me.pool.pull("me.Color");
-            return color.parseCSS(backBufferContext2D.fillStyle);
+            return globalColor.clone();
         };
 
         /**
@@ -12331,7 +12346,7 @@ if (!window.performance.now) {
          * @return {Number}
          */
         api.globalAlpha = function () {
-            return backBufferContext2D.globalAlpha;
+            return globalColor.alpha;
         };
 
         /**
@@ -12434,9 +12449,8 @@ if (!window.performance.now) {
          * @param {me.Color|String} color css color value
          */
         api.setColor = function (color) {
-            color = (color instanceof me.Color) ? color.toRGBA() : color;
-            backBufferContext2D.strokeStyle = color;
-            backBufferContext2D.fillStyle = color;
+            globalColor.copy(color);
+            backBufferContext2D.strokeStyle = backBufferContext2D.fillStyle = globalColor.toRGBA();
         };
 
         /**
@@ -12447,6 +12461,12 @@ if (!window.performance.now) {
          * @param {Number} alpha 0.0 to 1.0 values accepted.
          */
         api.setGlobalAlpha = function (a) {
+            globalColor.setColor(
+                globalColor.r,
+                globalColor.g,
+                globalColor.b,
+                a
+            );
             backBufferContext2D.globalAlpha = a;
         };
 
@@ -12493,7 +12513,7 @@ if (!window.performance.now) {
             backBufferContext2D.stroke();
             backBufferContext2D.closePath();
         };
-        
+
         /**
          * Stroke an ellipse at the specified coordinates with given radius, start and end points
          * @name strokeEllipse
@@ -13951,8 +13971,8 @@ if (!window.performance.now) {
          * @function
          * @param {me.Color|String} color css color string.
          */
-        api.setColor = function (col) {
-            globalColor.copy(col);
+        api.setColor = function (color) {
+            globalColor.copy(color);
         };
 
         /**
@@ -15940,20 +15960,26 @@ if (!window.performance.now) {
          */
         parseRGB : function (rgbColor) {
             // TODO : Memoize this function by caching its input
+            if (typeof(rgbColor) === "string") {
+                var start;
+                if (rgbColor.substring(0, 4) === "rgba") {
+                    start = 5;
+                }
+                else if (rgbColor.substring(0, 3) === "rgb") {
+                    start = 4;
+                }
+                else {
+                    return this.parseHex(rgbColor);
+                }
 
-            var start;
-            if (rgbColor.substring(0, 4) === "rgba") {
-                start = 5;
-            }
-            else if (rgbColor.substring(0, 3) === "rgb") {
-                start = 4;
-            }
-            else {
-                return this.parseHex(rgbColor);
-            }
+                var color = rgbColor.slice(start, -1).split(/\s*,\s*/);
+                return this.setColor.apply(this, color);
 
-            var color = rgbColor.slice(start, -1).split(/\s*,\s*/);
-            return this.setColor.apply(this, color);
+            } else {
+                throw new me.Color.Error(
+                    "invalid parameter (not a string)"
+                );
+            }
         },
 
         /**
@@ -15968,26 +15994,33 @@ if (!window.performance.now) {
         parseHex : function (hexColor) {
             // TODO : Memoize this function by caching its input
 
-            // Remove the # if present
-            if (hexColor.charAt(0) === "#") {
-                hexColor = hexColor.substring(1, hexColor.length);
-            }
+            if (typeof(hexColor) === "string") {
+                // Remove the # if present
+                if (hexColor.charAt(0) === "#") {
+                    hexColor = hexColor.substring(1, hexColor.length);
+                }
 
-            var r, g, b;
+                var r, g, b;
 
-            if (hexColor.length < 6)  {
-                // 3 char shortcut is used, double each char
-                r = parseInt(hexColor.charAt(0) + hexColor.charAt(0), 16);
-                g = parseInt(hexColor.charAt(1) + hexColor.charAt(1), 16);
-                b = parseInt(hexColor.charAt(2) + hexColor.charAt(2), 16);
-            }
-            else {
-                r = parseInt(hexColor.substring(0, 2), 16);
-                g = parseInt(hexColor.substring(2, 4), 16);
-                b = parseInt(hexColor.substring(4, 6), 16);
-            }
+                if (hexColor.length < 6)  {
+                    // 3 char shortcut is used, double each char
+                    r = parseInt(hexColor.charAt(0) + hexColor.charAt(0), 16);
+                    g = parseInt(hexColor.charAt(1) + hexColor.charAt(1), 16);
+                    b = parseInt(hexColor.charAt(2) + hexColor.charAt(2), 16);
+                }
+                else {
+                    r = parseInt(hexColor.substring(0, 2), 16);
+                    g = parseInt(hexColor.substring(2, 4), 16);
+                    b = parseInt(hexColor.substring(4, 6), 16);
+                }
 
-            return this.setColor(r, g, b);
+                return this.setColor(r, g, b);
+
+            } else {
+                throw new me.Color.Error(
+                    "invalid parameter (not a string)"
+                );
+            }
         },
 
         /**
@@ -16048,7 +16081,21 @@ if (!window.performance.now) {
                 this.alpha +
             ")";
         }
+    });
 
+    /**
+     * Base class for me.Color exception handling.
+     * @name Error
+     * @class
+     * @memberOf me.Vector2d
+     * @constructor
+     * @param {String} msg Error message.
+     */
+    me.Color.Error = me.Error.extend({
+        init : function (msg) {
+            me.Error.prototype.init.apply(this, [ msg ]);
+            this.name = "me.Color.Error";
+        }
     });
 })();
 
@@ -16798,8 +16845,7 @@ if (!window.performance.now) {
             // Apply isometric projection
             if (this.orientation === "isometric") {
                 for (i = 0; i < shapes.length; i++) {
-                    // What are these magic numbers for scaling?
-                    shapes[i].rotate(Math.PI / 4).scale(1.4132, 0.705);
+                    shapes[i].rotate(Math.PI / 4).scale(Math.SQRT2, Math.SQRT1_2);
                 }
             }
 
@@ -21175,7 +21221,10 @@ if (!window.performance.now) {
           sound._loop = loop;
         }
       }
-
+      
+      if(id == null) {
+         self._loop = loop;
+      }
       return self;
     },
 

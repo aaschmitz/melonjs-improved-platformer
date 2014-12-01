@@ -3,7 +3,7 @@
  "layers":[
         {
          "height":0,
-         "image":"..\/..\/..\/..\/..\/Apps\/GitHub\/improved-platformer\/data\/img\/background.png",
+         "image":"improved-platformer\/data\/img\/background.png",
          "name":"gradient_background",
          "opacity":1,
          "type":"imagelayer",
@@ -31,6 +31,7 @@
          "objects":[
                 {
                  "height":88,
+                 "id":1,
                  "name":"mainPlayer",
                  "properties":
                     {
@@ -47,6 +48,7 @@
                 {
                  "gid":19,
                  "height":0,
+                 "id":2,
                  "name":"me.Entity",
                  "properties":
                     {
@@ -62,6 +64,7 @@
                 {
                  "gid":20,
                  "height":0,
+                 "id":3,
                  "name":"me.Entity",
                  "properties":
                     {
@@ -76,6 +79,7 @@
                 }, 
                 {
                  "height":210,
+                 "id":4,
                  "name":"me.LevelEntity",
                  "properties":
                     {
@@ -105,6 +109,7 @@
          "objects":[
                 {
                  "height":35,
+                 "id":5,
                  "name":"SlimeEntity",
                  "properties":
                     {
@@ -120,6 +125,7 @@
                 }, 
                 {
                  "height":35,
+                 "id":6,
                  "name":"AIEnemyEntity",
                  "properties":
                     {
@@ -145,7 +151,22 @@
          "draworder":"topdown",
          "height":0,
          "name":"coins",
-         "objects":[],
+         "objects":[
+                {
+                 "height":35,
+                 "id":18,
+                 "name":"CoinEntity",
+                 "properties":
+                    {
+
+                    },
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":35,
+                 "x":211,
+                 "y":173.5
+                }],
          "opacity":1,
          "type":"objectgroup",
          "visible":true,
@@ -172,6 +193,7 @@
          "objects":[
                 {
                  "height":35,
+                 "id":7,
                  "name":"FlyEntity",
                  "properties":
                     {
@@ -203,6 +225,7 @@
          "objects":[
                 {
                  "height":70,
+                 "id":8,
                  "name":"",
                  "properties":
                     {
@@ -217,6 +240,7 @@
                 }, 
                 {
                  "height":140,
+                 "id":9,
                  "name":"",
                  "properties":
                     {
@@ -231,6 +255,7 @@
                 }, 
                 {
                  "height":70,
+                 "id":10,
                  "name":"",
                  "properties":
                     {
@@ -245,6 +270,7 @@
                 }, 
                 {
                  "height":70,
+                 "id":11,
                  "name":"",
                  "properties":
                     {
@@ -259,6 +285,7 @@
                 }, 
                 {
                  "height":0,
+                 "id":12,
                  "name":"",
                  "polygon":[
                         {
@@ -294,6 +321,7 @@
                 }, 
                 {
                  "height":0,
+                 "id":13,
                  "name":"",
                  "polyline":[
                         {
@@ -317,6 +345,7 @@
                 }, 
                 {
                  "height":70,
+                 "id":14,
                  "name":"",
                  "properties":
                     {
@@ -331,6 +360,7 @@
                 }, 
                 {
                  "height":140,
+                 "id":15,
                  "name":"",
                  "properties":
                     {
@@ -345,6 +375,7 @@
                 }, 
                 {
                  "height":35,
+                 "id":16,
                  "name":"",
                  "properties":
                     {
@@ -364,6 +395,7 @@
          "x":0,
          "y":0
         }],
+ "nextobjectid":19,
  "orientation":"orthogonal",
  "properties":
     {
@@ -374,7 +406,7 @@
  "tilesets":[
         {
          "firstgid":1,
-         "image":"..\/..\/..\/..\/..\/Apps\/GitHub\/improved-platformer\/data\/img\/tileset.png",
+         "image":"improved-platformer\/data\/img\/tileset.png",
          "imageheight":512,
          "imagewidth":512,
          "margin":0,

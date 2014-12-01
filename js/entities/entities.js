@@ -202,7 +202,26 @@ game.CoinEntity = me.CollectableEntity.extend({
 
         // set the renderable position to center
         this.anchorPoint.set(0.5, 0.5);
+        
+        // controls vars
+        this.timer = 500;
+        this.on = true;
     },
+
+ 	/**
+     * update the entity opacity
+     */
+	update: function(dt) {
+		this.timer -= dt;
+
+		if (this.timer <= 0) {			
+			this.renderable.setOpacity((this.on) ? 1.0 : 0.0);
+			this.timer = 500;
+            this.on = !this.on;           
+		}		
+
+        return true;
+	},
 
     /**
      * collision handling
