@@ -332,6 +332,60 @@ if (!Function.prototype.bind) {
     };
 }
 
+if (!Object.assign) {
+    /**
+     * The Object.assign() method is used to copy the values of all enumerable own properties from one or more source objects to a target object. 
+     * The Object.assign method only copies enumerable and own properties from a source object to a target object. 
+     * It uses [[Get]] on the source and [[Put]] on the target, so it will invoke getters and setters. 
+     * Therefore it assigns properties versus just copying or defining new properties. 
+     * This may make it unsuitable for merging new properties into a prototype if the merge sources contain getters. 
+     * For copying propertiy definitions, including their enumerability, into prototypes Object.getOwnPropertyDescriptor and Object.defineProperty should be used instead.
+     * @name assign
+     * @memberOf external:Object#
+     * @function
+     * @param {Object} target The target object.
+     * @param {Object[]} sources The source object(s).
+     * @return {Object} The target object gets returned.
+     * @example
+     * // Merging objects
+     * var o1 = { a: 1 };
+     * var o2 = { b: 2 };
+     * var o3 = { c: 3 };
+     *
+     * var obj = Object.assign(o1, o2, o3);
+     * console.log(obj);
+     * // { a: 1, b: 2, c: 3 }
+     */
+    
+    Object.defineProperty(Object, "assign", {
+        enumerable: false,
+        configurable: true,
+        writable: true,
+        value: function (target) {
+            "use strict";
+            if (target === undefined || target === null) {
+                throw new TypeError("Cannot convert first argument to object");
+            }
+            var to = Object(target);
+            for (var i = 1; i < arguments.length; i++) {
+                var nextSource = arguments[i];
+                if (nextSource === undefined || nextSource === null) {
+                    continue;
+                }
+                var keysArray = Object.keys(Object(nextSource));
+                for (var nextIndex = 0, len = keysArray.length; nextIndex < len; nextIndex++) {
+                    var nextKey = keysArray[nextIndex];
+                    var desc = Object.getOwnPropertyDescriptor(nextSource, nextKey);
+                    if (desc !== undefined && desc.enumerable) {
+                        to[nextKey] = nextSource[nextKey];
+                    }
+                }
+            }
+            return to;
+        }
+    });
+}
+
 /**
  * Sourced from: https://gist.github.com/parasyte/9712366
  * Extend a class prototype with the provided mixin descriptors.
@@ -868,9 +922,7 @@ Array.prototype.weightedRandom = function (entry) {
 me.TypedArray = function (a) {
     var i = 0;
     if (Array.isArray(a)) {
-        for (i = 0; i < a.length; i++) {
-            this.push(a[i]);
-        }
+        this.concat(a.slice());
     }
     else if ((arguments.length === 1) && (typeof(a) === "number")) {
         for (i = 0; i < a; i++) {
@@ -891,21 +943,21 @@ me.TypedArray.prototype = Array.prototype;
  * @external Float32Array
  * @see {@link https://developer.mozilla.org/en/JavaScript/Reference/Global_Objects/Float32Array|Float32Array}
  */
-window.Float32Array = Float32Array || me.TypedArray;
+window.Float32Array = window.Float32Array || me.TypedArray;
 
 /**
  * The built in Uint16Array object.
  * @external Uint16Array
  * @see {@link https://developer.mozilla.org/en/JavaScript/Reference/Global_Objects/Uint16Array|Uint16Array}
  */
-window.Uint16Array = Uint16Array || me.TypedArray;
+window.Uint16Array = window.Uint16Array || me.TypedArray;
 
 /**
  * The built in Uint32Array object.
  * @external Uint32Array
  * @see {@link https://developer.mozilla.org/en/JavaScript/Reference/Global_Objects/Uint32Array|Uint32Array}
  */
-window.Uint32Array = Uint32Array || me.TypedArray;
+window.Uint32Array = window.Uint32Array || me.TypedArray;
 
 /**
  * MelonJS Game Engine
@@ -1436,6 +1488,9 @@ if (!window.performance.now) {
                 // substract the map offset to current the current pos
                 api.viewport.screenX = translateX - api.currentLevel.pos.x;
                 api.viewport.screenY = translateY - api.currentLevel.pos.y;
+
+                // prepare renderer to draw a new frame
+                me.video.renderer.prepareSurface();
 
                 // update all objects,
                 // specifying the viewport as the rectangle area to redraw
@@ -6212,14 +6267,22 @@ if (!window.performance.now) {
 
                 // Calculate which Vornoi region the center of the circle is in.
                 var region = vornoiRegion(edge, point);
+                var inRegion = true;
                 // If it's the left region:
                 if (region === LEFT_VORNOI_REGION) {
-                    // We need to make sure we're in the RIGHT_VORNOI_REGION of the previous edge.
-                    edge.copy(edges[prev]);
-                    // Calculate the center of the circle relative the starting point of the previous edge
-                    var point2 = T_VECTORS.pop().copy(circlePos).sub(points[prev]);
-                    region = vornoiRegion(edge, point2);
-                    if (region === RIGHT_VORNOI_REGION) {
+                    var point2 = null;
+                    if (len > 1) {
+                        // We need to make sure we're in the RIGHT_VORNOI_REGION of the previous edge.
+                        edge.copy(edges[prev]);
+                        // Calculate the center of the circle relative the starting point of the previous edge
+                        point2 = T_VECTORS.pop().copy(circlePos).sub(points[prev]);
+                        region = vornoiRegion(edge, point2);
+                        if (region !== RIGHT_VORNOI_REGION) {
+                            inRegion = false;
+                        }
+                    }
+
+                    if (inRegion) {
                         // It's in the region we want.  Check if the circle intersects the point.
                         dist = point.length();
                         if (dist > radius) {
@@ -6228,7 +6291,9 @@ if (!window.performance.now) {
                             T_VECTORS.push(edge);
                             T_VECTORS.push(normal);
                             T_VECTORS.push(point);
-                            T_VECTORS.push(point2);
+                            if (point2) {
+                                T_VECTORS.push(point2);
+                            }
                             return false;
                         } else if (response) {
                             // It intersects, calculate the overlap.
@@ -6237,15 +6302,24 @@ if (!window.performance.now) {
                             overlap = radius - dist;
                         }
                     }
-                    T_VECTORS.push(point2);
-                    // If it's the right region:
+
+                    if (point2) {
+                        T_VECTORS.push(point2);
+                    }
+                // If it's the right region:
                 } else if (region === RIGHT_VORNOI_REGION) {
-                    // We need to make sure we're in the left region on the next edge
-                    edge.copy(edges[next]);
-                    // Calculate the center of the circle relative to the starting point of the next edge.
-                    point.copy(circlePos).sub(points[next]);
-                    region = vornoiRegion(edge, point);
-                    if (region === LEFT_VORNOI_REGION) {
+                    if (len > 1) {
+                        // We need to make sure we're in the left region on the next edge
+                        edge.copy(edges[next]);
+                        // Calculate the center of the circle relative to the starting point of the next edge.
+                        point.copy(circlePos).sub(points[next]);
+                        region = vornoiRegion(edge, point);
+                        if (region !== LEFT_VORNOI_REGION) {
+                            inRegion = false;
+                        }
+                    }
+
+                    if (inRegion) {
                         // It's in the region we want.  Check if the circle intersects the point.
                         dist = point.length();
                         if (dist > radius) {
@@ -6272,7 +6346,7 @@ if (!window.performance.now) {
                     dist = point.dotProduct(normal);
                     var distAbs = Math.abs(dist);
                     // If the circle is on the outside of the edge, there is no intersection.
-                    if (dist > 0 && distAbs > radius) {
+                    if ((len === 1 || dist > 0) && distAbs > radius) {
                         // No intersection
                         T_VECTORS.push(circlePos);
                         T_VECTORS.push(edge);
@@ -6574,7 +6648,7 @@ if (!window.performance.now) {
      * @param {Number} x the x coordinates of the sprite object
      * @param {Number} y the y coordinates of the sprite object
      * @param {Image} image reference to the Sprite Image. See {@link me.loader#getImage}
-     * @param {Number} [spritewidth] sprite width. The width to draw the image as. Defaults to image width.
+     * @param {Number} [framewidth] sprite width. The width to draw the image as. Defaults to image width.
      * @param {Number} [spriteheigth] sprite height. The height to draw the image as. Defaults to image height.
      * @example
      * // create a static Sprite Object
@@ -6586,7 +6660,7 @@ if (!window.performance.now) {
         /**
          * @ignore
          */
-        init : function (x, y, image, spritewidth, spriteheight) {
+        init : function (x, y, image, framewidth, frameheight) {
 
             /**
              * private/internal scale factor
@@ -6638,8 +6712,8 @@ if (!window.performance.now) {
 
             // call the super constructor
             me.Renderable.prototype.init.apply(this, [x, y,
-                spritewidth  || image.width,
-                spriteheight || image.height]);
+                framewidth  || image.width,
+                frameheight || image.height]);
             // cache image reference
             this.image = image;
 
@@ -6922,23 +6996,23 @@ if (!window.performance.now) {
      * @param {Object} settings Contains additional parameters for the animation sheet:
      * <ul>
      * <li>{Image} image to use for the animation</li>
-     * <li>{Number} spritewidth - of a single frame within the spritesheet</li>
-     * <li>{Number} spriteheight - height of a single frame within the spritesheet</li>
+     * <li>{Number} framewidth - of a single frame within the spritesheet</li>
+     * <li>{Number} frameheight - height of a single frame within the spritesheet</li>
      * <li>{Object} region an instance of: me.TextureAtlas#getRegion. The region for when the animation sheet is part of a me.TextureAtlas</li>
      * </ul>
      * @example
      * // standalone image
      * var animationSheet = new me.AnimationSheet(0, 0, {
      *   image: me.loader.getImage('animationsheet'),
-     *   spritewidth: 64,
-     *   spriteheight: 64
+     *   framewidth: 64,
+     *   frameheight: 64
      * });
      * // from a texture
      * var texture = new me.TextureAtlas(me.loader.getJSON('texture'), me.loader.getImage('texture'));
      * var animationSheet = new me.AnimationSheet(0, 0, {
      *   image: texture.getTexture(),
-     *   spritewidth: 64,
-     *   spriteheight: 64,
+     *   framewidth: 64,
+     *   frameheight: 64,
      *   region: texture.getRegion('animationsheet')
      * });
      */
@@ -6989,7 +7063,7 @@ if (!window.performance.now) {
             var image = settings.region || settings.image;
 
             // call the constructor
-            me.Sprite.prototype.init.apply(this, [x, y, settings.image, settings.spritewidth, settings.spriteheight, this.spacing, this.margin]);
+            me.Sprite.prototype.init.apply(this, [x, y, settings.image, settings.framewidth, settings.frameheight, this.spacing, this.margin]);
             // store the current atlas information
             this.textureAtlas = null;
             this.atlasIndices = null;
@@ -7509,8 +7583,8 @@ if (!window.performance.now) {
             // instantiate a new animation sheet object
             return new me.AnimationSheet(0, 0, {
                 image: this.texture,
-                spritewidth: 0,
-                spriteheight: 0,
+                framewidth: 0,
+                frameheight: 0,
                 margin: 0,
                 spacing: 0,
                 atlas: tpAtlas,
@@ -8085,8 +8159,8 @@ if (!window.performance.now) {
      *    {
      *       var settings = {}
      *       settings.image = "button";
-     *       settings.spritewidth = 100;
-     *       settings.spriteheight = 50;
+     *       settings.framewidth = 100;
+     *       settings.frameheight = 50;
      *       // super constructor
      *       me.GUI_Object.prototype.init.apply(this, [x, y, settings]);
      *       // define the object z order
@@ -8145,8 +8219,8 @@ if (!window.performance.now) {
             // call the parent constructor
             me.Sprite.prototype.init.apply(this, [x, y,
                 ((typeof settings.image === "string") ? me.loader.getImage(settings.image) : settings.image),
-                settings.spritewidth,
-                settings.spriteheight]);
+                settings.framewidth,
+                settings.frameheight]);
 
             // GUI items use screen coordinates
             this.floating = true;
@@ -8536,38 +8610,43 @@ if (!window.performance.now) {
          * @public
          * @function
          * @param {String} prop Property name
-         * @param {String} value Value of the property
+         * @param {String|RegExp|Number} value Value of the property
          * @return {me.Renderable[]} Array of childs
          * @example
          * // get the first child object called "mainPlayer" in a specific container :
-         * ent = myContainer.getChildByProp("name", "mainPlayer");
+         * var ent = myContainer.getChildByProp("name", "mainPlayer");
+         *
          * // or query the whole world :
-         * ent = me.game.world.getChildByProp("name", "mainPlayer");
+         * var ent = me.game.world.getChildByProp("name", "mainPlayer");
+         *
+         * // partial property matches are also allowed by using a RegExp.
+         * // the following matches "redCOIN", "bluecoin", "bagOfCoins", etc :
+         * var allCoins = me.game.world.getChildByProp("name", /coin/i);
+         *
+         * // searching for numbers or other data types :
+         * var zIndex10 = me.game.world.getChildByProp("z", 10);
+         * var inViewport = me.game.world.getChildByProp("inViewport", true);
          */
         getChildByProp : function (prop, value)    {
             var objList = [];
-            // for string comparaisons
-            var _regExp = new RegExp(value, "i");
 
             function compare(obj, prop) {
-                if (typeof (obj[prop]) === "string") {
-                    if (obj[prop].match(_regExp)) {
+                var v = obj[prop];
+                if (value instanceof RegExp && typeof(v) === "string") {
+                    if (value.test(v)) {
                         objList.push(obj);
                     }
                 }
-                else if (obj[prop] === value) {
+                else if (v === value) {
                     objList.push(obj);
                 }
             }
 
             for (var i = this.children.length - 1; i >= 0; i--) {
                 var obj = this.children[i];
+                compare(obj, prop);
                 if (obj instanceof me.Container) {
-                    compare(obj, prop);
                     objList = objList.concat(obj.getChildByProp(prop, value));
-                }
-                else {
-                    compare(obj, prop);
                 }
             }
             return objList;
@@ -8582,7 +8661,7 @@ if (!window.performance.now) {
          * @memberOf me.Container
          * @public
          * @function
-         * @param {String} name entity name
+         * @param {String|RegExp|Number} name entity name
          * @return {me.Renderable[]} Array of childs
          */
 
@@ -8598,7 +8677,7 @@ if (!window.performance.now) {
          * @memberOf me.Container
          * @public
          * @function
-         * @param {String} GUID entity GUID
+         * @param {String|RegExp|Number} GUID entity GUID
          * @return {me.Renderable} corresponding child or null
          */
         getChildByGUID : function (guid) {
@@ -8869,7 +8948,6 @@ if (!window.performance.now) {
             var x = 0;
             var y = 0;
             var z = 0;
-            var bounds = null;
             var viewport = me.game.viewport;
 
             for (var i = this.children.length, obj; i--, (obj = this.children[i]);) {
@@ -8887,16 +8965,15 @@ if (!window.performance.now) {
                     // Translate global context
                     isTranslated = !isFloating;
                     if (isTranslated) {
-                        bounds = obj.getBounds();
-                        x = bounds.pos.x;
-                        y = bounds.pos.y;
-                        z = Math.abs(x + y + bounds.width + bounds.height);
+                        x = obj.pos.x;
+                        y = obj.pos.y;
+                        z = Math.abs(x + y + obj.width + obj.height);
                         if (z !== z || z === Infinity) {
                             isStacked = true;
                             stack.push(globalTranslation.clone());
                         }
-                        globalTranslation.translateV(bounds.pos);
-                        globalTranslation.resize(bounds.width, bounds.height);
+                        globalTranslation.translateV(obj.pos);
+                        globalTranslation.resize(obj.width, obj.height);
                     }
 
                     // check if object is visible
@@ -9004,99 +9081,21 @@ if (!window.performance.now) {
 (function () {
 
     /**
-     * me.ObjectSettings contains the object attributes defined in Tiled<br>
-     * and is created by the engine and passed as parameter to the corresponding
-     * object when loading a level<br>
-     * the field marked Mandatory are to be defined either in Tiled, or in the
-     * before calling the parent constructor<br>
-     * <img src="images/object_properties.png"/><br>
-     * @class
-     * @protected
-     * @memberOf me
-     */
-    me.ObjectSettings = {
-        /**
-         * object entity name<br>
-         * as defined in the Tiled Object Properties
-         * @public
-         * @property {String} name
-         * @memberOf me.ObjectSettings
-         */
-        name : null,
-
-        /**
-         * image ressource name to be loaded<br>
-         * (in case of TiledObject, this field is automatically set)
-         * @public
-         * @property {String} image
-         * @memberOf me.ObjectSettings
-         */
-        image : null,
-
-        /**
-         * specify a transparent color for the image in rgb format (#rrggbb)<br>
-         * (using this option will imply processing time on the image)
-         * @public
-         * @deprecated Use PNG or GIF with transparency instead
-         * @property {String=} transparent_color
-         * @memberOf me.ObjectSettings
-         */
-        transparent_color : null,
-
-        /**
-         * width of a single sprite in the spritesheet<br>
-         * (in case of TiledObject, this field is automatically set)
-         * @public
-         * @property {Number=} spritewidth
-         * @memberOf me.ObjectSettings
-         */
-        spritewidth : null,
-
-        /**
-         * height of a single sprite in the spritesheet<br>
-         * if not specified the value will be set to the corresponding image height<br>
-         * (in case of TiledObject, this field is automatically set)
-         * @public
-         * @property {Number=} spriteheight
-         * @memberOf me.ObjectSettings
-         */
-        spriteheight : null,
-
-        /**
-         * object type as defined in Tiled
-         * @public
-         * @property {String=} type
-         * @memberOf me.ObjectSettings
-         */
-        type : null,
-
-        /**
-         * Mask collision detection for this object<br>
-         * OPTIONAL
-         * @public
-         * @type Number
-         * @name me.ObjectSettings#collisionMask
-         */
-        collisionMask : 0xFFFFFFFF
-    };
-
-    /*
-     * A generic object entity
-     */
-
-    /**
      * a Generic Object Entity<br>
-     * Object Properties (settings) are to be defined in Tiled, <br>
-     * or when calling the parent constructor
-     *
      * @class
      * @extends me.Renderable
      * @memberOf me
      * @constructor
      * @param {Number} x the x coordinates of the entity object
      * @param {Number} y the y coordinates of the entity object
-     * @param {me.ObjectSettings} settings Object Properties as defined in Tiled<br>
+     * @param {Object} settings Entity properties, to be defined through Tiled or when caling the entity constructor
      * <img src="images/object_properties.png"/>
+     * @param {String} [settings.name] object entity name
+     * @param {String} [settings.image] resource name of a spritesheet to use for the entity renderable component
+     * @param {Number} [settings.framewidth] width of a single frame in the given spritesheet
+     * @param {Number} [settings.frameheight] height of a single frame in the given spritesheet
+     * @param {String} [settings.type] object type
+     * @param {Number} [settings.collisionMask] Mask collision detection for this object
      */
     me.Entity = me.Renderable.extend(
     /** @scope me.Entity.prototype */
@@ -9136,8 +9135,8 @@ if (!window.performance.now) {
                 var image = typeof settings.image === "object" ? settings.image : me.loader.getImage(settings.image);
                 this.renderable = new me.AnimationSheet(0, 0, {
                     "image" : image,
-                    "spritewidth" : ~~(settings.spritewidth || settings.width),
-                    "spriteheight" : ~~(settings.spriteheight || settings.height),
+                    "framewidth" : ~~(settings.framewidth || settings.width),
+                    "frameheight" : ~~(settings.frameheight || settings.height),
                     "spacing" : ~~settings.spacing,
                     "margin" : ~~settings.margin
                 });
@@ -9190,6 +9189,11 @@ if (!window.performance.now) {
 
             // ensure the entity bounds and pos are up-to-date
             this.body.updateBounds();
+
+            // resize the entity if required
+            if (this.width === 0 && this.height === 0) {
+                this.resize(this.body.width, this.body.height);
+            }
 
             // set the  collision mask if defined
             if (typeof(settings.collisionMask) !== "undefined") {
@@ -11027,7 +11031,7 @@ if (!window.performance.now) {
      * @constructor
      * @param {String} font a CSS font name
      * @param {Number|String} size size, or size + suffix (px, em, pt)
-     * @param {String} fillStyle a CSS color value
+     * @param {me.Color|String} fillStyle a CSS color value
      * @param {String} [textAlign="left"] horizontal alignment
      */
     me.Font = me.Renderable.extend(
@@ -11043,19 +11047,19 @@ if (!window.performance.now) {
              * defines the color used to draw the font.<br>
              * Default value : "#000000"
              * @public
-             * @type String
+             * @type me.Color
              * @name me.Font#fillStyle
              */
-            this.fillStyle = fillStyle || "#000000";
-
+            this.fillStyle = new me.Color().copy(fillStyle);
+            
             /**
              * defines the color used to draw the font stroke.<br>
              * Default value : "#000000"
              * @public
-             * @type String
+             * @type me.Color
              * @name me.Font#strokeStyle
              */
-            this.strokeStyle = "#000000";
+            this.strokeStyle = new me.Color(0, 0, 0);
 
             /**
              * sets the current line width, in pixels, when drawing stroke
@@ -11133,7 +11137,7 @@ if (!window.performance.now) {
          * @function
          * @param {String} font a CSS font name
          * @param {Number|String} size size, or size + suffix (px, em, pt)
-         * @param {String} fillStyle a CSS color value
+         * @param {me.Color|String} fillStyle a CSS color value
          * @param {String} [textAlign="left"] horizontal alignment
          * @example
          * font.setFont("Arial", 20, "white");
@@ -11155,7 +11159,9 @@ if (!window.performance.now) {
                 size += "px";
             }
             this.font = size + " " + font_names.join(",");
-            this.fillStyle = fillStyle;
+            if (typeof(fillStyle) !== "undefined") {
+                this.fillStyle.copy(fillStyle);
+            }
             if (textAlign) {
                 this.textAlign = textAlign;
             }
@@ -11173,7 +11179,7 @@ if (!window.performance.now) {
         measureText : function (context, text) {
             // draw the text
             context.font = this.font;
-            context.fillStyle = this.fillStyle;
+            context.fillStyle = this.fillStyle.toRGBA();
             context.textAlign = this.textAlign;
             context.textBaseline = this.textBaseline;
 
@@ -11195,7 +11201,7 @@ if (!window.performance.now) {
          * @name draw
          * @memberOf me.Font
          * @function
-         * @param {me.CanvasRenderer} reference to me.CanvasRenderer
+         * @param {Context} context 2D Context
          * @param {String} text
          * @param {Number} x
          * @param {Number} y
@@ -11204,11 +11210,16 @@ if (!window.performance.now) {
         draw : function (context, text, x, y) {
             x = ~~x;
             y = ~~y;
+
+            // save the previous global alpha value
+            var _alpha = context.globalAlpha;
+            context.globalAlpha *= this.getOpacity();
+
             // update initial position
             this.pos.set(x, y);
             // draw the text
             context.font = this.font;
-            context.fillStyle = this.fillStyle;
+            context.fillStyle = this.fillStyle.toRGBA();
             context.textAlign = this.textAlign;
             context.textBaseline = this.textBaseline;
 
@@ -11219,6 +11230,9 @@ if (!window.performance.now) {
                 // add leading space
                 y += this.fontSize.y * this.lineHeight;
             }
+
+            // restore the previous global alpha value
+            context.globalAlpha = _alpha;
         },
 
         /**
@@ -11236,12 +11250,17 @@ if (!window.performance.now) {
         drawStroke : function (context, text, x, y) {
             x = ~~x;
             y = ~~y;
+            
+            // save the previous global alpha value
+            var _alpha = context.globalAlpha;
+            context.globalAlpha *= this.getOpacity();
+
             // update initial position
             this.pos.set(x, y);
             // draw the text
             context.font = this.font;
-            context.fillStyle = this.fillStyle;
-            context.strokeStyle = this.strokeStyle;
+            context.fillStyle = this.fillStyle.toRGBA();
+            context.strokeStyle = this.strokeStyle.toRGBA();
             context.lineWidth = this.lineWidth;
             context.textAlign = this.textAlign;
             context.textBaseline = this.textBaseline;
@@ -11256,6 +11275,9 @@ if (!window.performance.now) {
                 // add leading space
                 y += this.fontSize.y * this.lineHeight;
             }
+
+            // restore the previous global alpha value
+            context.globalAlpha = _alpha;
         }
     });
 })();
@@ -11298,7 +11320,7 @@ if (!window.performance.now) {
             // #char per row
             this.charCount = 0;
             // font name and type
-            me.Font.prototype.init.apply(this, [font, null, null]);
+            me.Font.prototype.init.apply(this, [font, size, "#000000"]);
             // first char in the ascii table
             this.firstChar = firstChar || 0x20;
 
@@ -11367,11 +11389,11 @@ if (!window.performance.now) {
          * @name measureText
          * @memberOf me.BitmapFont
          * @function
-         * @param {Context} context 2D Context
+         * @param {me.CanvasRenderer|me.WebGLRenderer} renderer Reference to the destination renderer instance
          * @param {String} text
          * @return {Object} returns an object, with two attributes: width (the width of the text) and height (the height of the text).
          */
-        measureText : function (context, text) {
+        measureText : function (renderer, text) {
             var strings = ("" + text).split("\n");
 
             this.height = this.width = 0;
@@ -11388,7 +11410,7 @@ if (!window.performance.now) {
          * @name draw
          * @memberOf me.BitmapFont
          * @function
-         * @param {Context} context 2D Context
+         * @param {me.CanvasRenderer|me.WebGLRenderer} renderer Reference to the destination renderer instance
          * @param {String} text
          * @param {Number} x
          * @param {Number} y
@@ -11397,11 +11419,11 @@ if (!window.performance.now) {
             var strings = ("" + text).split("\n");
             var lX = x;
             var height = this.sSize.y * this.lineHeight;
-            
+
             // save the previous global alpha value
             var _alpha = renderer.globalAlpha();
             renderer.setGlobalAlpha(_alpha * this.getOpacity());
-  
+
             // update initial position
             this.pos.set(x, y);
             for (var i = 0; i < strings.length; i++) {
@@ -11437,7 +11459,7 @@ if (!window.performance.now) {
                     default :
                         break;
                 }
-                
+
                 // draw the string
                 for (var c = 0, len = string.length; c < len; c++) {
                     // calculate the char index
@@ -11498,11 +11520,11 @@ if (!window.performance.now) {
          * event listener callback on load error
          * @ignore
          */
-        function soundLoadError(sound_id, onerror_cb) {
+        function soundLoadError(sound_name, onerror_cb) {
             // check the retry counter
             if (retry_counter++ > 3) {
                 // something went wrong
-                var errmsg = "melonJS: failed loading " + sound_id;
+                var errmsg = "melonJS: failed loading " + sound_name;
                 if (me.sys.stopOnAudioError === false) {
                     // disable audio
                     me.audio.disable();
@@ -11520,7 +11542,7 @@ if (!window.performance.now) {
             // else try loading again !
             }
             else {
-                audioTracks[sound_id].load();
+                audioTracks[sound_name].load();
             }
         }
 
@@ -11606,7 +11628,7 @@ if (!window.performance.now) {
          * Load an audio file.<br>
          * <br>
          * sound item must contain the following fields :<br>
-         * - name    : id of the sound<br>
+         * - name    : name of the sound<br>
          * - src     : source path<br>
          * @ignore
          */
@@ -11643,15 +11665,11 @@ if (!window.performance.now) {
          * @memberOf me.audio
          * @public
          * @function
-         * @param {String}
-         *            sound_id audio clip id
-         * @param {Boolean}
-         *            [loop=false] loop audio
-         * @param {Function}
-         *            [onend] Function to call when sound instance ends playing.
-         * @param {Number}
-         *            [volume=default] Float specifying volume (0.0 - 1.0 values accepted).
-         * @return {Number} the sound Id.
+         * @param {String} sound_name audio clip name
+         * @param {Boolean} [loop=false] loop audio
+         * @param {Function} [onend] Function to call when sound instance ends playing.
+         * @param {Number} [volume=default] Float specifying volume (0.0 - 1.0 values accepted).
+         * @return {Number} the sound instance ID.
          * @example
          * // play the "cling" audio clip
          * me.audio.play("cling");
@@ -11662,21 +11680,24 @@ if (!window.performance.now) {
          * // play the "gameover_sfx" audio clip with a lower volume level
          * me.audio.play("gameover_sfx", false, null, 0.5);
          */
-        api.play = function (sound_id, loop, onend, volume) {
-            var sound = audioTracks[sound_id.toLowerCase()];
+        api.play = function (sound_name, loop, onend, volume) {
+            var sound = audioTracks[sound_name.toLowerCase()];
             if (sound && typeof sound !== "undefined") {
+                var instance_id = sound.play();
                 if (typeof loop === "boolean") {
                     // arg[0] can take different types in howler 2.0
-                    sound.loop(loop);
+                    sound.loop(loop, instance_id);
                 }
-                sound.volume(typeof(volume) === "number" ? volume.clamp(0.0, 1.0) : Howler.volume());
+                sound.volume(typeof(volume) === "number" ? volume.clamp(0.0, 1.0) : Howler.volume(), instance_id);
                 if (typeof(onend) === "function") {
-                    sound.on("end", function onend_wrapper() {
-                        sound.off("end", onend_wrapper);
-                        onend.call(sound, arguments);
-                    });
+                    if (loop === true) {
+                        sound.on("end", onend, instance_id);
+                    }
+                    else {
+                        sound.once("end", onend, instance_id);
+                    }
                 }
-                return sound.play();
+                return instance_id;
             }
         };
 
@@ -11686,14 +11707,14 @@ if (!window.performance.now) {
          * @memberOf me.audio
          * @public
          * @function
-         * @param {String} sound_id audio clip id
+         * @param {String} sound_name audio clip name
          * @param {Number} from Volume to fade from (0.0 to 1.0).
-         * @param {Number} to  Volume to fade to (0.0 to 1.0).
+         * @param {Number} to Volume to fade to (0.0 to 1.0).
          * @param {Number} duration Time in milliseconds to fade.
-         * @param {Number} [id] The sound ID. If none is passed, all sounds in group will fade.
+         * @param {Number} [id] the sound instance ID. If none is passed, all sounds in group will fade.
          */
-        api.fade = function (sound_id, from, to, duration, instance_id) {
-            var sound = audioTracks[sound_id.toLowerCase()];
+        api.fade = function (sound_name, from, to, duration, instance_id) {
+            var sound = audioTracks[sound_name.toLowerCase()];
             if (sound && typeof sound !== "undefined") {
                 sound.fade(from, to, duration, instance_id);
             }
@@ -11705,17 +11726,17 @@ if (!window.performance.now) {
          * @memberOf me.audio
          * @public
          * @function
-         * @param {String} sound_id audio clip id
-         * @param {String} [id] the play instance ID.
+         * @param {String} sound_name audio clip name
+         * @param {Number} [id] the sound instance ID. If none is passed, all sounds in group will stop.
          * @example
          * me.audio.stop("cling");
          */
-        api.stop = function (sound_id, instance_id) {
-            var sound = audioTracks[sound_id.toLowerCase()];
+        api.stop = function (sound_name, instance_id) {
+            var sound = audioTracks[sound_name.toLowerCase()];
             if (sound && typeof sound !== "undefined") {
                 sound.stop(instance_id);
                 // remove the defined onend callback (if any defined)
-                sound.off("end");
+                sound.off("end", instance_id);
             }
         };
 
@@ -11726,13 +11747,13 @@ if (!window.performance.now) {
          * @memberOf me.audio
          * @public
          * @function
-         * @param {String} sound_id audio clip id
-         * @param {String} [id] the play instance ID.
+         * @param {String} sound_name audio clip name
+         * @param {Number} [id] the sound instance ID. If none is passed, all sounds in group will pause.
          * @example
          * me.audio.pause("cling");
          */
-        api.pause = function (sound_id, instance_id) {
-            var sound = audioTracks[sound_id.toLowerCase()];
+        api.pause = function (sound_name, instance_id) {
+            var sound = audioTracks[sound_name.toLowerCase()];
             if (sound && typeof sound !== "undefined") {
                 sound.pause(instance_id);
             }
@@ -11746,13 +11767,14 @@ if (!window.performance.now) {
          * @memberOf me.audio
          * @public
          * @function
-         * @param {String} sound_id audio track id
+         * @param {String} sound_name audio track name
          * @param {Number} [volume=default] Float specifying volume (0.0 - 1.0 values accepted).
+         * @return {Number} the sound instance ID.
          * @example
          * me.audio.playTrack("awesome_music");
          */
-        api.playTrack = function (sound_id, volume) {
-            current_track_id = sound_id.toLowerCase();
+        api.playTrack = function (sound_name, volume) {
+            current_track_id = sound_name.toLowerCase();
             return me.audio.play(
                 current_track_id,
                 true,
@@ -11825,7 +11847,7 @@ if (!window.performance.now) {
          * @memberOf me.audio
          * @public
          * @function
-         * @return {String} audio track id
+         * @return {String} audio track name
          */
         api.getCurrentTrack = function () {
             return current_track_id;
@@ -11861,14 +11883,15 @@ if (!window.performance.now) {
          * @memberOf me.audio
          * @public
          * @function
-         * @param {String} sound_id audio clip id
+         * @param {String} sound_name audio clip name
+         * @param {Number} [id] the sound instance ID. If none is passed, all sounds in group will mute.
          */
-        api.mute = function (sound_id, mute) {
+        api.mute = function (sound_name, instance_id, mute) {
             // if not defined : true
             mute = (typeof(mute) === "undefined" ? true : !!mute);
-            var sound = audioTracks[sound_id.toLowerCase()];
+            var sound = audioTracks[sound_name.toLowerCase()];
             if (sound && typeof(sound) !== "undefined") {
-                sound.mute(mute);
+                sound.mute(mute, instance_id);
             }
         };
 
@@ -11878,10 +11901,11 @@ if (!window.performance.now) {
          * @memberOf me.audio
          * @public
          * @function
-         * @param {String} sound_id audio clip id
+         * @param {String} sound_name audio clip name
+         * @param {Number} [id] the sound instance ID. If none is passed, all sounds in group will unmute.
          */
-        api.unmute = function (sound_id) {
-            api.mute(false, sound_id);
+        api.unmute = function (sound_name, instance_id) {
+            api.mute(sound_name, instance_id, false);
         };
 
         /**
@@ -11913,20 +11937,20 @@ if (!window.performance.now) {
          * @memberOf me.audio
          * @public
          * @function
-         * @param {String} sound_id audio track id
+         * @param {String} sound_name audio track name
          * @return {Boolean} true if unloaded
          * @example
          * me.audio.unload("awesome_music");
          */
-        api.unload = function (sound_id) {
-            sound_id = sound_id.toLowerCase();
-            if (!(sound_id in audioTracks)) {
+        api.unload = function (sound_name) {
+            sound_name = sound_name.toLowerCase();
+            if (!(sound_name in audioTracks)) {
                 return false;
             }
 
             // destroy the Howl object
-            audioTracks[sound_id].unload();
-            delete audioTracks[sound_id];
+            audioTracks[sound_name].unload();
+            delete audioTracks[sound_name];
 
             return true;
         };
@@ -11942,9 +11966,9 @@ if (!window.performance.now) {
          * me.audio.unloadAll();
          */
         api.unloadAll = function () {
-            for (var sound_id in audioTracks) {
-                if (audioTracks.hasOwnProperty(sound_id)) {
-                    api.unload(sound_id);
+            for (var sound_name in audioTracks) {
+                if (audioTracks.hasOwnProperty(sound_name)) {
+                    api.unload(sound_name);
                 }
             }
         };
@@ -11977,8 +12001,10 @@ if (!window.performance.now) {
         backBufferCanvas = null,
         backBufferContext2D = null,
         globalColor = null,
+        colorStack = [],
         gameHeightZoom = 0,
-        gameWidthZoom = 0;
+        gameWidthZoom = 0,
+        transparent = false;
 
         /**
          * initializes the canvas renderer, creating the requried contexts
@@ -11988,27 +12014,36 @@ if (!window.performance.now) {
          * @param {Canvas} canvas - the html canvas tag to draw to on screen.
          * @param {Number} game_width - the width of the canvas without scaling
          * @param {Number} game_height - the height of the canvas without scaling
-         * @param {Boolean} double_buffering - whether to enable double buffering.
-         * @param {Number} game_width_zoom - The actual width of the canvas with scaling applied
-         * @param {Number} game_height_zoom - The actual height of the canvas with scaling applied
+         * @param {Object} [options] The renderer parameters
+         * @param {Boolean} [options.double_buffering] - whether to enable double buffering.
+         * @param {Number} [options.zoomX] - The actual width of the canvas with scaling applied
+         * @param {Number} [options.zoomY] - The actual height of the canvas with scaling applied
          */
-        api.init = function (c, game_width, game_height, double_buffering, game_width_zoom, game_height_zoom) {
+        api.init = function (c, width, height, options) {
+            options = options || {};
+
+            transparent = !!(options.transparent);
+            doubleBuffering = !!(options.double_buffering);
             canvas = c;
-            context = this.getContext2d(canvas);
-            doubleBuffering = double_buffering;
+            context = this.getContext2d(canvas, !transparent);
 
             // create the back buffer if we use double buffering
             if (doubleBuffering) {
-                backBufferCanvas = me.video.createCanvas(game_width, game_height, false);
+                backBufferCanvas = me.video.createCanvas(width, height, false);
                 backBufferContext2D = this.getContext2d(backBufferCanvas);
+
+                if (transparent) {
+                    // Clears the front buffer for each frame blit
+                    context.globalCompositeOperation = "copy";
+                }
             }
             else {
                 backBufferCanvas = canvas;
                 backBufferContext2D = context;
             }
 
-            gameWidthZoom = game_width_zoom;
-            gameHeightZoom = game_height_zoom;
+            gameWidthZoom = options.zoomX || width;
+            gameHeightZoom = options.zoomY || height;
 
             // the default global canvas color
             globalColor = new me.Color(255, 255, 255, 1.0);
@@ -12078,6 +12113,24 @@ if (!window.performance.now) {
         };
 
         /**
+         * prepare the framebuffer for drawing a new frame
+         * @name prepareSurface
+         * @memberOf me.CanvasRenderer
+         * @function
+         */
+        api.prepareSurface = function () {
+            if (transparent) {
+                api.prepareSurface = function () {
+                    api.clearSurface(null, "rgba(0,0,0,0)", true);
+                };
+            }
+            else {
+                api.prepareSurface = function () {};
+            }
+            api.prepareSurface();
+        };
+
+        /**
          * render the main framebuffer on screen
          * @name blitSurface
          * @memberOf me.CanvasRenderer
@@ -12093,7 +12146,6 @@ if (!window.performance.now) {
                         backBufferCanvas.width, backBufferCanvas.height, 0,
                         0, gameWidthZoom, gameHeightZoom
                     );
-
                 };
             }
             else {
@@ -12111,14 +12163,16 @@ if (!window.performance.now) {
          * @function
          * @param {Context2d} [ctx=null] canvas context, defaults to system context.
          * @param {me.Color|String} color CSS color.
+         * @param {Boolean} [opaque=false] Allow transparency [default] or clear the surface completely [true]
          */
-        api.clearSurface = function (ctx, col) {
+        api.clearSurface = function (ctx, col, opaque) {
             if (!ctx) {
                 ctx = backBufferContext2D;
             }
             var _canvas = ctx.canvas;
             ctx.save();
             ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.globalCompositeOperation = opaque ? "copy" : "source-over";
             ctx.fillStyle = (col instanceof me.Color) ? col.toRGBA() : col;
             ctx.fillRect(0, 0, _canvas.width, _canvas.height);
             ctx.restore();
@@ -12250,9 +12304,10 @@ if (!window.performance.now) {
          * @memberOf me.CanvasRenderer
          * @function
          * @param {Canvas} [canvas=canvas instance of the renderer]
+         * @param {Boolean} [opaque=false] Use true to disable transparency
          * @return {Context2d}
          */
-        api.getContext2d = function (c) {
+        api.getContext2d = function (c, opaque) {
             if (typeof c === "undefined" || c === null) {
                 throw new me.video.Error(
                     "You must pass a canvas element in order to create " +
@@ -12270,11 +12325,14 @@ if (!window.performance.now) {
             if (navigator.isCocoonJS) {
                 // cocoonJS specific extension
                 _context = c.getContext("2d", {
-                    "antialias" : me.sys.scalingInterpolation
+                    "antialias" : me.sys.scalingInterpolation,
+                    "alpha" : !opaque
                 });
             }
             else {
-                _context = c.getContext("2d");
+                _context = c.getContext("2d", {
+                    "alpha" : !opaque
+                });
             }
             if (!_context.canvas) {
                 _context.canvas = c;
@@ -12387,6 +12445,10 @@ if (!window.performance.now) {
                 canvas.style.width = (canvas.width / me.device.getPixelRatio()) + "px";
                 canvas.style.height = (canvas.height / me.device.getPixelRatio()) + "px";
             }
+            if (doubleBuffering && transparent) {
+                // Clears the front buffer for each frame blit
+                context.globalCompositeOperation = "copy";
+            }
             this.setImageSmoothing(context, me.sys.scalingInterpolation);
             this.blitSurface();
         };
@@ -12398,6 +12460,7 @@ if (!window.performance.now) {
          * @function
          */
         api.save = function () {
+            colorStack.push(api.getColor());
             backBufferContext2D.save();
         };
 
@@ -12408,7 +12471,10 @@ if (!window.performance.now) {
          * @function
          */
         api.restore = function () {
+            var color = colorStack.pop();
+            me.pool.push("me.Color", color);
             backBufferContext2D.restore();
+            api.setColor(color);
         };
 
         /**
@@ -12432,13 +12498,6 @@ if (!window.performance.now) {
          */
         api.scale = function (x, y) {
             backBufferContext2D.scale(x, y);
-        };
-
-        /**
-         * @private
-         */
-        api.setAlpha = function (enable) {
-            backBufferContext2D.globalCompositeOperation = enable ? "source-over" : "copy";
         };
 
         /**
@@ -12698,17 +12757,24 @@ if (!window.performance.now) {
 
         // internal variables
         var canvas = null;
-        var wrapper = null;
 
         var deferResizeId = -1;
-
-        var double_buffering = false;
-        var auto_scale = false;
-        var maintainAspectRatio = true;
 
         // max display size
         var maxWidth = Infinity;
         var maxHeight = Infinity;
+
+        // default video settings
+        var settings = {
+            wrapper : undefined,
+            renderer : 0, // canvas
+            double_buffering : false,
+            auto_scale : false,
+            scale : 1.0,
+            maintainAspectRatio : true,
+            transparent : false
+        };
+
 
         /**
          * Auto-detect the best renderer to use
@@ -12775,43 +12841,56 @@ if (!window.performance.now) {
          * @name init
          * @memberOf me.video
          * @function
-         * @param {String} wrapper the "div" element id to hold the canvas in the HTML file  (if null document.body will be used)
-         * @param {Number} [renderer=me.video.CANVAS] State which renderer you prefer to use.
-         * @param {Number} width game width
-         * @param {Number} height game height
-         * @param {Boolean} [double_buffering] enable/disable double buffering
-         * @param {Number} [scale] enable scaling of the canvas ('auto' for automatic scaling)
-         * @param {Boolean} [maintainAspectRatio] maintainAspectRatio when scaling the display
+         * @param {Number} width the width of the canvas viewport
+         * @param {Number} height the height of the canvas viewport
+         * @param {Object} [options] The optional video/renderer parameters
+         * @param {String} [options.wrapper=document.body] the "div" element name to hold the canvas in the HTML file
+         * @param {Number} [options.renderer=me.video.CANVAS] renderer to use.
+         * @param {Boolean} [options.double_buffering=false] enable/disable double buffering
+         * @param {Number} [options.scale=1.0] enable scaling of the canvas ('auto' for automatic scaling)
+         * @param {Boolean} [options.maintainAspectRatio=true] maintainAspectRatio when scaling the display
+         * @param {Boolean} [options.transparent=false] whether to allow transparent pixels in the front buffer (screen)
          * @return {Boolean}
          * @example
-         * // init the video with a 480x320 canvas
-         * if (!me.video.init('jsapp', me.video.CANVAS, 480, 320)) {
-         *    alert("Sorry but your browser does not support html 5 canvas !");
-         *    return;
-         * }
+         * // init the video with a 640x480 canvas
+         *   me.video.init(640, 480, {
+         *       wrapper: "screen",
+         *       renderer: me.video.CANVAS,
+         *       scale: 'auto',
+         *       maintainAspectRatio: true,
+         *       double_buffering: true
+         *   });
          */
-        api.init = function (wrapperid, renderer, game_width, game_height, doublebuffering, scale, aspectRatio) {
+        //api.init = function (wrapperid, renderer, game_width, game_height, doublebuffering, scale, aspectRatio) {
+        api.init = function (game_width, game_height, options) {
             // ensure melonjs has been properly initialized
             if (!me.initialized) {
                 throw new api.Error("me.video.init() called before engine initialization.");
             }
-            // check given parameters
-            double_buffering = doublebuffering || false;
-            auto_scale  = (scale === "auto") || false;
-            maintainAspectRatio = (typeof(aspectRatio) !== "undefined") ? aspectRatio : true;
+
+            // revert to default options if not defined
+            settings = Object.assign(settings, options || {});
+
+            // sanitize potential given parameters
+            settings.double_buffering = !!(settings.double_buffering);
+            settings.auto_scale = (settings.scale === "auto") || false;
+            settings.maintainAspectRatio = !!(settings.maintainAspectRatio);
+            settings.transparent = !!(settings.transparent);
 
             // normalize scale
-            scale = (auto_scale) ? 1.0 : (+scale || 1.0);
-            me.sys.scale = new me.Vector2d(scale, scale);
+            settings.scale = (settings.auto_scale) ? 1.0 : (+settings.scale || 1.0);
+            me.sys.scale = new me.Vector2d(settings.scale, settings.scale);
 
             // force double buffering if scaling is required
-            if (auto_scale || (scale !== 1.0)) {
-                double_buffering = true;
+            if (settings.auto_scale || (settings.scale !== 1.0)) {
+                settings.double_buffering = true;
             }
 
             // default scaled size value
             var game_width_zoom = game_width * me.sys.scale.x;
             var game_height_zoom = game_height * me.sys.scale.y;
+            settings.zoomX = game_width_zoom;
+            settings.zoomY = game_height_zoom;
 
             //add a channel for the onresize/onorientationchange event
             window.addEventListener(
@@ -12847,30 +12926,30 @@ if (!window.performance.now) {
             canvas = api.createCanvas(game_width_zoom, game_height_zoom, true);
 
             // add our canvas
-            if (wrapperid) {
-                wrapper = document.getElementById(wrapperid);
+            if (options.wrapper) {
+                settings.wrapper = document.getElementById(options.wrapper);
             }
             // if wrapperid is not defined (null)
-            if (!wrapper) {
+            if (!settings.wrapper) {
                 // add the canvas to document.body
-                wrapper = document.body;
+                settings.wrapper = document.body;
             }
-            wrapper.appendChild(canvas);
+            settings.wrapper.appendChild(canvas);
 
             // stop here if not supported
             if (!canvas.getContext) {
                 return false;
             }
 
-            switch (renderer) {
+            switch (settings.renderer) {
                 case api.WEBGL:
-                    this.renderer = me.WebGLRenderer.init(canvas, game_width, game_height);
+                    this.renderer = me.WebGLRenderer.init(canvas, game_width, game_height, settings);
                     break;
                 case api.AUTO:
-                    this.renderer = autoDetectRenderer(canvas, game_width, game_height, double_buffering, game_width_zoom, game_height_zoom);
+                    this.renderer = autoDetectRenderer(canvas, game_width, game_height, settings);
                     break;
                 default:
-                    this.renderer = me.CanvasRenderer.init(canvas, game_width, game_height, double_buffering, game_width_zoom, game_height_zoom);
+                    this.renderer = me.CanvasRenderer.init(canvas, game_width, game_height, settings);
                     break;
             }
 
@@ -12962,7 +13041,7 @@ if (!window.performance.now) {
          * @return {Document}
          */
         api.getWrapper = function () {
-            return wrapper;
+            return settings.wrapper;
         };
 
         /**
@@ -12986,13 +13065,13 @@ if (!window.performance.now) {
                 );
             }
 
-            if (auto_scale) {
+            if (settings.auto_scale) {
                 // get the parent container max size
                 var parent = me.video.renderer.getScreenCanvas().parentNode;
                 var _max_width = Math.min(maxWidth, parent.width || window.innerWidth);
                 var _max_height = Math.min(maxHeight, parent.height || window.innerHeight);
 
-                if (maintainAspectRatio) {
+                if (settings.maintainAspectRatio) {
                     // make sure we maintain the original aspect ratio
                     var designRatio = me.video.renderer.getWidth() / me.video.renderer.getHeight();
                     var screenRatio = _max_width / _max_height;
@@ -13045,17 +13124,6 @@ if (!window.performance.now) {
             me.input._offset = me.video.getPos();
             // clear the timeout id
             deferResizeId = -1;
-        };
-
-        /**
-         * enable/disable Alpha. Only applies to canvas renderer
-         * @name setAlpha
-         * @memberOf me.video
-         * @function
-         * @param {Boolean} enable
-         */
-        api.setAlpha = function (enable) {
-            this.renderer.setAlpha(enable);
         };
 
         // return our api
@@ -13315,10 +13383,13 @@ if (!window.performance.now) {
          * @param {Canvas} canvas - the html canvas tag to draw to on screen.
          * @param {Number} game_width - the width of the canvas without scaling
          * @param {Number} game_height - the height of the canvas without scaling
+         * @param {Object} [options] The renderer parameters
          */
-        api.init = function (c, width, height) {
+        api.init = function (c, width, height, options) {
+            options = options || {};
+
             canvas = c;
-            gl = this.getContextGL(c);
+            gl = this.getContextGL(c, !options.transparent);
             gl.FALSE = false;
             gl.TRUE = true;
 
@@ -13448,20 +13519,31 @@ if (!window.performance.now) {
         api.blitSurface = function () {};
 
         /**
+         * @ignore
+         */
+        api.prepareSurface = function () {};
+
+        /**
          * Clears the gl context. Accepts a gl context or defaults to stored gl renderer.
          * @name clearSurface
          * @memberOf me.WebGLRenderer
          * @function
          * @param {WebGLContext} [ctx=null] gl context, defaults to system context.
-         * @param {me.Color|String} color css color.
+         * @param {me.Color|String} color CSS color.
+         * @param {Boolean} [opaque=false] Allow transparency [default] or clear the surface completely [true]
          */
-        api.clearSurface = function (ctx, col) {
+        api.clearSurface = function (ctx, col, opaque) {
             if (!ctx) {
                 ctx = gl;
             }
             colorStack.push(this.getColor());
             this.setColor(col);
-            this.fillRect(0, 0, canvas.width, canvas.height);
+            if (opaque) {
+                gl.clear(gl.COLOR_BUFFER_BIT);
+            }
+            else {
+                this.fillRect(0, 0, canvas.width, canvas.height);
+            }
             this.setColor(colorStack.pop());
         };
 
@@ -13564,7 +13646,7 @@ if (!window.performance.now) {
                 x, y, fontCache[gid].width, fontCache[gid].height
             );
         };
-        
+
         /**
          * Draw a line from the given point to the destination point.
          * @name drawLine
@@ -13578,7 +13660,7 @@ if (!window.performance.now) {
         api.drawLine = function (/*startX, startY, endX, endY*/) {
             // todo
         };
-        
+
         /**
          * Draw an image to the gl context
          * @name drawImage
@@ -13735,9 +13817,10 @@ if (!window.performance.now) {
          * @memberOf me.WebGLRenderer
          * @function
          * @param {Canvas} [canvas=canvas instance of the renderer]
+         * @param {Boolean} [opaque=false] Use true to disable transparency
          * @return {WebGLContext}
          */
-        api.getContextGL = function (c) {
+        api.getContextGL = function (c, opaque) {
             if (typeof c === "undefined" || c === null) {
                 throw new me.video.Error(
                     "You must pass a canvas element in order to create " +
@@ -13753,6 +13836,7 @@ if (!window.performance.now) {
 
             var attr = {
                 antialias : me.sys.scalingInterpolation,
+                alpha : !opaque,
             };
             return (
                 c.getContext("webgl", attr) ||
@@ -13925,14 +14009,6 @@ if (!window.performance.now) {
         };
 
         /**
-         * Enables/disables alpha
-         * @private
-         */
-        api.setAlpha = function () {
-            /* Unimplemented */
-        };
-
-        /**
          * @ignore
          */
         api.setProjection = function () {
@@ -14000,7 +14076,7 @@ if (!window.performance.now) {
         api.strokeArc = function (/*x, y, radius, start, end, antiClockwise*/) {
             //todo
         };
-        
+
         /**
          * Stroke an ellipse at the specified coordinates with given radius, start and end points
          * @name strokeEllipse
@@ -14014,7 +14090,7 @@ if (!window.performance.now) {
         api.strokeEllipse = function (/*x, y, w, h*/) {
             //todo
         };
-        
+
         /**
          * Stroke a line of the given two points
          * @name strokeLine
@@ -15726,70 +15802,37 @@ if (!window.performance.now) {
      * @extends Object
      * @memberOf me
      * @constructor
-     * @param {Number} [r=0] red component
+     * @param {Float32Array|Number} [r=0] red component or array of color components
      * @param {Number} [g=0] green component
      * @param {Number} [b=0] blue component
-     * @param {Number} [a=1.0] alpha value
+     * @param {Number} [alpha=1.0] alpha value
      */
     me.Color = Object.extend(
     /** @scope me.Color.prototype */
     {
 
         /** @ignore */
-        init : function (r, g, b, a) {
-            /**
-             * Color Red Component
-             * @name r
-             * @memberOf me.Color
-             * @type {Number}
-             * @readonly
-             */
-            this.r = 0;
-
-            /**
-             * Color Green Component
-             * @name g
-             * @memberOf me.Color
-             * @type {Number}
-             * @readonly
-             */
-            this.g = 0;
-
-            /**
-             * Color Blue Component
-             * @name b
-             * @memberOf me.Color
-             * @type {Number}
-             * @readonly
-             */
-            this.b = 0;
-
-            /**
-             * Color Alpha Component
-             * @name alpha
-             * @memberOf me.Color
-             * @type {Number}
-             * @readonly
-             */
-            this.alpha = 1.0;
+        init : function (r, g, b, alpha) {
 
             /**
              * Color components in a Float32Array suitable for WebGL
              * @name glArray
              * @memberOf me.Color
-             * @type {Float32Array[]}
+             * @type {Float32Array}
              * @readonly
              */
-            this.glArray = new Float32Array([ 0.0, 0.0, 0.0, 1.0 ]);
+            if (typeof (this.glArray) === "undefined") {
+                this.glArray = new Float32Array([ 0.0, 0.0, 0.0, 1.0 ]);
+            }
 
-            return this.setColor(r, g, b, a);
+            return this.setColor(r, g, b, alpha);
         },
 
         /**
          * @ignore
          */
-        onResetEvent : function (r, g, b, a) {
-            return this.setColor(r, g, b, a);
+        onResetEvent : function (r, g, b, alpha) {
+            return this.setColor(r, g, b, alpha);
         },
 
         /**
@@ -15797,22 +15840,36 @@ if (!window.performance.now) {
          * @name setColor
          * @memberOf me.Color
          * @function
-         * @param {Number} r red component
-         * @param {Number} g green component
-         * @param {Number} b blue component
-         * @param {Number} [a=1.0] alpha value
+         * @param {Float32Array|Number} r red component [0 .. 255] or array of color components
+         * @param {Number} g green component [0 .. 255]
+         * @param {Number} b blue component [0 .. 255]
+         * @param {Number} [alpha=1.0] alpha value [0.0 .. 1.0]
          * @return {me.Color} Reference to this object for method chaining
          */
-        setColor : function (r, g, b, a) {
-            this.r = (~~r || 0).clamp(0, 255);
-            this.g = (~~g || 0).clamp(0, 255);
-            this.b = (~~b || 0).clamp(0, 255);
-            this.alpha = typeof(a) === "undefined" ? 1.0 : (+a).clamp(0, 1);
+        setColor : function (r, g, b, alpha) {
+            if (r instanceof Float32Array) {
+                return this.setGLColor(r);
+            }
+            this.r = r;
+            this.g = g;
+            this.b = b;
+            this.alpha = alpha;
+            return this;
+        },
 
-            this.glArray[0] = this.r / 255.0;
-            this.glArray[1] = this.g / 255.0;
-            this.glArray[2] = this.b / 255.0;
-            this.glArray[3] = this.alpha;
+        /**
+         * Set this color to the specified value.
+         * @name setGLColor
+         * @memberOf me.Color
+         * @function
+         * @param {Float32Array} glArray WebGL color components
+         * @return {me.Color} Reference to this object for method chaining
+         */
+        setGLColor : function (glArray) {
+            this.glArray[0] = (glArray[0] || 0).clamp(0, 1);
+            this.glArray[1] = (glArray[1] || 0).clamp(0, 1);
+            this.glArray[2] = (glArray[2] || 0).clamp(0, 1);
+            this.glArray[3] = typeof(glArray[3]) === "undefined" ? 1.0 : (+glArray[3]).clamp(0, 1);
 
             return this;
         },
@@ -15825,7 +15882,7 @@ if (!window.performance.now) {
          * @return {me.Color} Reference to the newly cloned object
          */
         clone : function () {
-            return me.pool.pull("me.Color", this.r, this.g, this.b, this.alpha);
+            return me.pool.pull("me.Color", this.glArray);
         },
 
         /**
@@ -15839,7 +15896,7 @@ if (!window.performance.now) {
         copy : function (color) {
             return (
                 (color instanceof me.Color) ?
-                this.setColor(color.r, color.g, color.b, color.alpha) :
+                this.setGLColor(color.toGL()) :
                 this.parseCSS(color)
             );
         },
@@ -15853,12 +15910,12 @@ if (!window.performance.now) {
          * @return {me.Color} Reference to this object for method chaining
          */
         add : function (color) {
-            return this.setColor(
-                this.r + color.r,
-                this.g + color.g,
-                this.b + color.b,
-                (this.alpha + color.alpha) / 2
-            );
+            this.glArray[0] = (this.glArray[0] + color.glArray[0]).clamp(0, 1);
+            this.glArray[1] = (this.glArray[1] + color.glArray[1]).clamp(0, 1);
+            this.glArray[2] = (this.glArray[2] + color.glArray[2]).clamp(0, 1);
+            this.glArray[3] = (this.glArray[3] + color.glArray[3]) / 2;
+
+            return this;
         },
 
         /**
@@ -15871,12 +15928,11 @@ if (!window.performance.now) {
          */
         darken : function (scale) {
             scale = scale.clamp(0, 1);
-            return this.setColor(
-                this.r * scale,
-                this.g * scale,
-                this.b * scale,
-                this.alpha
-            );
+            this.glArray[0] *= scale;
+            this.glArray[1] *= scale;
+            this.glArray[2] *= scale;
+
+            return this;
         },
 
         /**
@@ -15889,12 +15945,11 @@ if (!window.performance.now) {
          */
         lighten : function (scale) {
             scale = scale.clamp(0, 1);
-            return this.setColor(
-                this.r + (255 - this.r) * scale,
-                this.g + (255 - this.g) * scale,
-                this.b + (255 - this.b) * scale,
-                this.alpha
-            );
+            this.glArray[0] = (this.glArray[0] + (1 - this.glArray[0]) * scale).clamp(0, 1);
+            this.glArray[1] = (this.glArray[1] + (1 - this.glArray[1]) * scale).clamp(0, 1);
+            this.glArray[2] = (this.glArray[2] + (1 - this.glArray[2]) * scale).clamp(0, 1);
+
+            return this;
         },
 
         /**
@@ -15924,10 +15979,10 @@ if (!window.performance.now) {
          */
         equals : function (color) {
             return (
-                (this.r === color.r) &&
-                (this.g === color.g) &&
-                (this.b === color.b) &&
-                (this.alpha === color.alpha)
+                (this.glArray[0] === color.glArray[0]) &&
+                (this.glArray[1] === color.glArray[1]) &&
+                (this.glArray[2] === color.glArray[2]) &&
+                (this.glArray[3] === color.glArray[3])
             );
         },
 
@@ -15960,6 +16015,7 @@ if (!window.performance.now) {
          */
         parseRGB : function (rgbColor) {
             // TODO : Memoize this function by caching its input
+
             if (typeof(rgbColor) === "string") {
                 var start;
                 if (rgbColor.substring(0, 4) === "rgba") {
@@ -16081,6 +16137,62 @@ if (!window.performance.now) {
                 this.alpha +
             ")";
         }
+    });
+
+    /**
+     * Color Red Component
+     * @type Number
+     * @name r
+     * @readonly
+     * @memberOf me.Color
+     */
+    Object.defineProperty(me.Color.prototype, "r", {
+        get : function () { return ~~(this.glArray[0] * 255); },
+        set : function (value) { this.glArray[0] = (~~value || 0).clamp(0, 255) / 255.0; },
+        enumerable : true,
+        configurable : true
+    });
+
+    /**
+     * Color Green Component
+     * @type Number
+     * @name g
+     * @readonly
+     * @memberOf me.Color
+     */
+    Object.defineProperty(me.Color.prototype, "g", {
+        get : function () { return ~~(this.glArray[1] * 255); },
+        set : function (value) { this.glArray[1] = (~~value || 0).clamp(0, 255) / 255.0; },
+        enumerable : true,
+        configurable : true
+    });
+
+    /**
+     * Color Blue Component
+     * @type Number
+     * @name b
+     * @readonly
+     * @memberOf me.Color
+     */
+    Object.defineProperty(me.Color.prototype, "b", {
+        get : function () { return ~~(this.glArray[2] * 255); },
+        set : function (value) { this.glArray[2] = (~~value || 0).clamp(0, 255) / 255.0; },
+        enumerable : true,
+        configurable : true
+    });
+
+    /**
+     * Color Alpha Component
+     * @type Number
+     * @name alpha
+     * @readonly
+     * @memberOf me.Color
+     */
+    Object.defineProperty(me.Color.prototype, "alpha", {
+        get : function () { return this.glArray[3]; },
+        set : function (value) { this.glArray[3] = typeof(value) === "undefined" ? 1.0 : (+value).clamp(0, 1); },
+        enumerable : true,
+        configurable : true
     });
 
     /**
@@ -16536,7 +16648,8 @@ if (!window.performance.now) {
                 _objects.forEach(function (tmxObj) {
                     self.objects.push(new me.TMXObject(tmxObj, orientation, tilesets, z));
                 });
-            } else {
+            }
+            else if (_objects) {
                 self.objects.push(new me.TMXObject(_objects, orientation, tilesets, z));
             }
         },
@@ -16770,8 +16883,8 @@ if (!window.performance.now) {
             this.width = tileset.tilewidth;
             this.height = tileset.tileheight;
 
-            // force spritewidth size
-            this.spritewidth = this.width;
+            // force framewidth size
+            this.framewidth = this.width;
 
             // the object corresponding tile
 
@@ -20411,7 +20524,7 @@ if (!window.performance.now) {
             for (var j=0; j<ids.length; j++) {
               var sound = self._howls[i]._soundById(ids[j]);
 
-              if (sound) {
+              if (sound && sound._node) {
                 sound._node.volume = sound._volume * vol;
               }
             }
@@ -20448,7 +20561,7 @@ if (!window.performance.now) {
           for (var j=0; j<ids.length; j++) {
             var sound = self._howls[i]._soundById(ids[j]);
 
-            if (sound) {
+            if (sound && sound._node) {
               sound._node.muted = (muted) ? true : sound._muted;
             }
           }
@@ -20633,6 +20746,11 @@ if (!window.performance.now) {
         return;
       }
 
+      // Make sure our source is in an array.
+      if (typeof self._src === 'string') {
+        self._src = [self._src];
+      }
+
       // Loop through the sources and pick the first one that is compatible.
       for (var i=0; i<self._src.length; i++) {
         var ext, str;
@@ -20727,7 +20845,7 @@ if (!window.performance.now) {
       // for the sound to load to get our audio's duration.
       if (!self._loaded && !self._sprite[sprite]) {
         self.once('load', function() {
-          self.play(sound._id);
+          self.play(self._soundById(sound._id) ? sound._id : undefined);
         });
         return sound._id;
       }
@@ -20741,11 +20859,11 @@ if (!window.performance.now) {
       var seek = sound._seek > 0 ? sound._seek : self._sprite[sprite][0] / 1000;
       var duration = ((self._sprite[sprite][0] + self._sprite[sprite][1]) / 1000) - seek;
 
-      // Should this sound loop?
-      var loop = !!(sound._loop || self._sprite[sprite][2]);
-
       // Create a timer to fire at the end of playback or the start of a new loop.
       var ended = function() {
+        // Should this sound loop?
+        var loop = !!(sound._loop || self._sprite[sprite][2]);
+
         // Fire the ended event.
         self._emit('end', sound._id);
 
@@ -20787,7 +20905,7 @@ if (!window.performance.now) {
       sound._seek = seek;
       sound._start = self._sprite[sprite][0] / 1000;
       sound._stop = (self._sprite[sprite][0] + self._sprite[sprite][1]) / 1000;
-      sound._loop = loop;
+      sound._loop = !!(sound._loop || self._sprite[sprite][2]);
 
       // Begin the actual playback.
       var node = sound._node;
@@ -20934,9 +21052,11 @@ if (!window.performance.now) {
 
       // Wait for the sound to begin playing before stopping it.
       if (!self._loaded) {
-        self.once('play', function() {
-          self.stop(id);
-        });
+        if (typeof self._sounds[0]._sprite !== 'undefined') {
+          self.once('play', function() {
+            self.stop(id);
+          });
+        }
 
         return self;
       }
@@ -21018,9 +21138,9 @@ if (!window.performance.now) {
         if (sound) {
           sound._muted = muted;
 
-          if (self._webAudio) {
+          if (self._webAudio && sound._node) {
             sound._node.gain.setValueAtTime(muted ? 0 : sound._volume * Howler.volume(), ctx.currentTime);
-          } else {
+          } else if (sound._node) {
             sound._node.muted = Howler._muted ? true : muted;
           }
         }
@@ -21086,9 +21206,9 @@ if (!window.performance.now) {
           if (sound) {
             sound._volume = vol;
 
-            if (self._webAudio) {
+            if (self._webAudio && sound._node) {
               sound._node.gain.setValueAtTime(vol * Howler.volume(), ctx.currentTime);
-            } else {
+            } else if (sound._node) {
               sound._node.volume = vol * Howler.volume();
             }
           }
@@ -21202,6 +21322,7 @@ if (!window.performance.now) {
       } else if (args.length === 1) {
         if (typeof args[0] === 'boolean') {
           loop = args[0];
+          self._loop = loop;
         } else {
           // Return this sound's loop value.
           sound = self._soundById(parseInt(args[0], 10));
@@ -21219,12 +21340,12 @@ if (!window.performance.now) {
 
         if (sound) {
           sound._loop = loop;
+          if (self._webAudio && sound._node) {
+            sound._node.bufferSource.loop = loop;
+          }
         }
       }
-      
-      if(id == null) {
-         self._loop = loop;
-      }
+
       return self;
     },
 
@@ -21804,7 +21925,7 @@ if (!window.performance.now) {
         xhr.onerror = function() {
           // If there is an error, switch to HTML5 Audio.
           if (self._webAudio) {
-            self._buffer = true;
+            self._html5 = true;
             self._webAudio = false;
             self._sounds = [];
             delete cache[url];
